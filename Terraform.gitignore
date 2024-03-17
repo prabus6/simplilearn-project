@@ -1,5 +1,10 @@
 # Local .terraform directories
 **/.terraform/*
+<<<<<<< HEAD
+/.terraform/*
+.terraform/*
+=======
+>>>>>>> 4ed3a9986e139d875ad9dc4b793dc7f7046e77d9
 
 # .tfstate files
 *.tfstate
@@ -9,6 +14,10 @@
 crash.log
 crash.*.log
 
+<<<<<<< HEAD
+
+=======
+>>>>>>> 4ed3a9986e139d875ad9dc4b793dc7f7046e77d9
 # Exclude all .tfvars files, which are likely to contain sensitive data, such as
 # password, private keys, and other secrets. These should not be part of version 
 # control as they are data points which are potentially sensitive and subject 
@@ -32,3 +41,7 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+<<<<<<< HEAD
+.terraform.lock.hcl
+=======
+>>>>>>> 4ed3a9986e139d875ad9dc4b793dc7f7046e77d9
