@@ -3,11 +3,11 @@ variable "region" {
 }
 
 variable "vpc_id" {
-  default = "vpc-054211ba9b2e44326"
+  default = "vpc-02c08bfa1a83d4a33"
 }
 
 variable "public_subnet_ids" {
-  default = "subnet-07aa14d7eefb07bbf"
+  default = "subnet-0f1e47afeb7854766"
 }
 
 variable "ami_id" {
