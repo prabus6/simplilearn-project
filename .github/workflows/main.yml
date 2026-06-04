@@ -99,7 +99,7 @@ jobs:
 
 #      - name: Setup OpenTofu
 #        uses: opentofu/setup-opentofu@v1
-#        uses: opentofu/setup-opentofu@v4
+#        uses: opentofu/setup-opentofu@v6
 #        with:
 #          tofu_version: ${{ env.TOFU_VERSION }}
 
@@ -134,7 +134,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run Trivy IaC Scan
         uses: aquasecurity/trivy-action@v0.36.0
@@ -156,7 +156,7 @@ jobs:
 
       - name: Upload Trivy Results as Artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: trivy-results-${{ github.event.inputs.environment }}-${{ github.run_id }}
           path: trivy-results.sarif
@@ -202,7 +202,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -229,7 +229,7 @@ jobs:
           set -e
 
       - name: Upload Plan Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: tfplan-${{ github.event.inputs.environment }}-${{ github.run_id }}
           path: |
@@ -281,7 +281,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -293,7 +293,7 @@ jobs:
         run: tofu init -input=false
 
       - name: Download Plan Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: tfplan-${{ github.event.inputs.environment }}-${{ github.run_id }}
           path: ${{ env.TF_WORKING_DIR }}
