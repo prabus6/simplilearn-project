@@ -91,7 +91,7 @@ jobs:
     needs: confirm
     defaults:
       run:
-        working-directory: terraform-code
+        working-directory: ${{ env.TF_WORKING_DIR }}
 
     steps:
       - name: Checkout
@@ -128,7 +128,7 @@ jobs:
     needs: lint-and-validate
     defaults:
       run:
-        working-directory: terraform-code
+        working-directory: ${{ env.TF_WORKING_DIR }}
     
 
     steps:
@@ -173,7 +173,7 @@ jobs:
     needs: trivy-scan
     defaults:
       run:
-        working-directory: terraform-code
+        working-directory: ${{ env.TF_WORKING_DIR }}
 
     # Declaring environment here unlocks the scoped secrets for this job.
     # dev   → reads dev secrets   → deploys to dev subscription
