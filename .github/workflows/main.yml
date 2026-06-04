@@ -89,6 +89,9 @@ jobs:
     name: Lint and Validate
     runs-on: ubuntu-latest
     needs: confirm
+    defaults:
+      run:
+        working-directory: terraform-code
 
     steps:
       - name: Checkout
@@ -123,6 +126,10 @@ jobs:
     name: Trivy IaC Scan
     runs-on: ubuntu-latest
     needs: lint-and-validate
+    defaults:
+      run:
+        working-directory: terraform-code
+    
 
     steps:
       - name: Checkout
@@ -164,6 +171,9 @@ jobs:
     name: Plan – ${{ github.event.inputs.environment }}
     runs-on: ubuntu-latest
     needs: trivy-scan
+    defaults:
+      run:
+        working-directory: terraform-code
 
     # Declaring environment here unlocks the scoped secrets for this job.
     # dev   → reads dev secrets   → deploys to dev subscription
