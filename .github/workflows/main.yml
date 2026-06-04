@@ -62,7 +62,7 @@ permissions:
 
 env:
   TF_WORKING_DIR: terraform-code
-  TOFU_VERSION: "1.9.0"
+  TOFU_VERSION: "1.11.8"
 
 
 # Job 1 – Approval Stage
