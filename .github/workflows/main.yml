@@ -61,7 +61,7 @@ permissions:
 # Credentials are environment-scoped and injected per job below.
 
 env:
-  TF_WORKING_DIR: infra
+  TF_WORKING_DIR: terraform-code
   TOFU_VERSION: "1.9.0"
 
 
