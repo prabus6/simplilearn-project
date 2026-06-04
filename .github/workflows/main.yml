@@ -126,7 +126,7 @@ jobs:
   trivy-scan:
     name: Trivy IaC Scan
     runs-on: ubuntu-latest
-    needs: lint-and-validate
+   # needs: lint-and-validate
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
