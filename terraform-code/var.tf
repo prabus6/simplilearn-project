@@ -17,3 +17,11 @@ variable "ami_id" {
 variable "key_name" {
   default = "jenkins-kp"
 }
+variable "environment" {
+  description = "Deployment environment (dev | staging | prod)."
+  type        = string
+  validation {
+    condition     = contains(["dev", "test", "production"], var.environment)
+    error_message = "environment must be one of: dev, test, production."
+  }
+}
