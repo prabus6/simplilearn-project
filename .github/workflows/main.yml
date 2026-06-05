@@ -185,7 +185,7 @@ jobs:
           ref: ${{ needs.confirm.outputs.branch }}
 
       - name: Setup OpenTofu
-        uses: opentofu/setup-opentofu@v1
+        uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
 
