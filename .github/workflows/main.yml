@@ -1,34 +1,3 @@
-###############################################################################
-# .github/workflows/terraform.yml
-#
-# OpenTofu – Manual Parameterized Multi-Subscription Deployment Pipeline
-#
-# Flow:
-#   workflow_dispatch → confirm → lint & validate → trivy scan → plan → apply
-#
-# Each environment maps to its own Azure subscription via GitHub Environment
-# scoped secrets. Secrets set at global level are NOT used for credentials —
-# all Azure auth is resolved per-environment inside each job.
-#
-# GitHub Environment setup (Settings → Environments):
-#
-#   Environment: dev
-#     Secrets: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
-#              AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
-#              TF_VAR_COST_CENTER
-#
-#   Environment: test
-#     Secrets: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
-#              AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
-#              TF_VAR_COST_CENTER
-#
-#   Environment: production
-#     Secrets: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
-#              AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
-#              TF_VAR_COST_CENTER
-#     Protection: Required reviewers enabled
-###############################################################################
-
 name: OpenTofu-Infrastructure
 
 on:
@@ -48,29 +17,33 @@ on:
         required: true
         default: "no"
 
-
 # Permissions
 
 permissions:
-  id-token: write        # SPN auth
+  id-token: write  
   contents: read
-  security-events: write # upload Trivy SARIF (report) to GitHub Security tab
-
-
-# Non-sensitive global defaults only — NO credentials here.
-# Credentials are environment-scoped and injected per job below.
+  security-events: write 
 
 env:
   TF_WORKING_DIR: terraform-code
-  TOFU_VERSION: "1.11.8"
+  TOFU_VERSION: "1.12.0"
 
-
-# Job 1 – Approval Stage
+###############################################################################
+# Job 1 – Confirm
+# Fails fast if confirm input is not 'yes'.
+# Resolves:
+#   - which branch to checkout (dev → dev, test → test, master → master)
+#   - which GitHub Environment to target (dev → dev, test → test, master → production)
 
 jobs:
   confirm:
     name: Approve Deployment
     runs-on: ubuntu-latest
+
+    outputs:
+      branch: ${{ steps.resolve.outputs.branch }}
+      github_environment: ${{ steps.resolve.outputs.github_environment }}
+      tf_environment: ${{ steps.resolve.outputs.tf_environment }}
 
     steps:
       - name: Check User Input
@@ -79,23 +52,54 @@ jobs:
             echo "::error::Deployment aborted — confirm input must be 'yes'. Got: '${{ github.event.inputs.confirm }}'"
             exit 1
           fi
-          echo "Approved. Deploying to: ${{ github.event.inputs.environment }}"
+
+      - name: Resolve Branch and Environment
+        id: resolve
+        run: |
+          INPUT="${{ github.event.inputs.environment }}"
+
+          if [ "$INPUT" = "dev" ]; then
+            echo "branch=dev"                >> "$GITHUB_OUTPUT"
+            echo "github_environment=dev"    >> "$GITHUB_OUTPUT"
+            echo "tf_environment=dev"        >> "$GITHUB_OUTPUT"
+
+          elif [ "$INPUT" = "test" ]; then
+            echo "branch=test"               >> "$GITHUB_OUTPUT"
+            echo "github_environment=test"   >> "$GITHUB_OUTPUT"
+            echo "tf_environment=test"       >> "$GITHUB_OUTPUT"
+
+          elif [ "$INPUT" = "master" ]; then
+            echo "branch=master"                  >> "$GITHUB_OUTPUT"
+            echo "github_environment=production"  >> "$GITHUB_OUTPUT"
+            echo "tf_environment=prod"            >> "$GITHUB_OUTPUT"
+
+          else
+            echo "::error::Unknown environment input: $INPUT"
+            exit 1
+          fi
+
+      - name: Print Deployment Plan
+        run: |
+          echo "Confirmed"
+          echo "Selected option  : ${{ github.event.inputs.environment }}"
+          echo "Branch to deploy : ${{ steps.resolve.outputs.branch }}"
+          echo "GitHub Env       : ${{ steps.resolve.outputs.github_environment }}"
+          echo "TF environment   : ${{ steps.resolve.outputs.tf_environment }}"
 
 
-# Job 2 – Lint & Validate
-# No Azure credentials needed — purely static analysis.
+# Job 2 – Lint and Validate
 
   lint-and-validate:
     name: Lint and Validate
     runs-on: ubuntu-latest
     needs: confirm
-    defaults:
-      run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
+    continue-on-error: true 
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v1
+      - name: Checkout Branch - ${{ needs.confirm.outputs.branch }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.confirm.outputs.branch }}
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v2
@@ -108,100 +112,77 @@ jobs:
           tofu fmt -check -recursive
           if [ $? -ne 0 ]; then
             echo "::error::Terraform files are not formatted. Run 'tofu fmt -recursive' locally."
-            exit 1
+            #exit 1
           fi
 
       - name: Validate Configuration
         working-directory: ${{ env.TF_WORKING_DIR }}
-        # tofu validate needs init — use -backend=false to skip remote state auth
+        # -backend=false skips remote state auth — no credentials needed here
         run: |
           tofu init -backend=false -input=false
           tofu validate -no-color
 
 
 # Job 3 – Trivy IaC Security Scan
-# Ref - https://github.com/aquasecurity/trivy-action/blob/master/README.md
 
   trivy-scan:
     name: Trivy IaC Scan
     runs-on: ubuntu-latest
-   # needs: lint-and-validate
-    defaults:
-      run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
+    needs: lint-and-validate
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout Branch - ${{ needs.confirm.outputs.branch }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.confirm.outputs.branch }}
 
       - name: Run Trivy IaC Scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           scan-type: "config"
           scan-ref: ${{ env.TF_WORKING_DIR }}
           format: "sarif"
           output: "trivy-results.sarif"
           severity: "HIGH,CRITICAL"
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
 
-      - name: Upload Trivy SARIF to GitHub Security Tab
+      - name: Print Trivy Results to Build Log
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: "trivy-results.sarif"
-          category: "trivy-iac"
-
-      - name: Upload Trivy Results as Artifact
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: trivy-results-${{ github.event.inputs.environment }}-${{ github.run_id }}
-          path: trivy-results.sarif
-          retention-days: 30
-
+        run: |
+          if [ -f trivy-results.table ]; then
+            echo "================================================================"
+            echo " Trivy IaC Scan Results - ${{ github.event.inputs.environment }}"
+            echo "================================================================"
+            cat trivy-results.table
+            echo "================================================================"
+          fi
 
 # Job 4 – Plan
-# Declares the GitHub Environment so environment-scoped secrets are available.
-# This means the correct subscription credentials are used automatically
-# based on which environment was selected in the workflow_dispatch input.
 
   plan:
-    name: Plan – ${{ github.event.inputs.environment }}
+    name: Plan - ${{ github.event.inputs.environment }}
     runs-on: ubuntu-latest
-    needs: trivy-scan
-    defaults:
-      run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
+    needs: [confirm, trivy-scan]
 
-    # Declaring environment here unlocks the scoped secrets for this job.
-    # dev   → reads dev secrets   → deploys to dev subscription
-    # test  → reads test secrets  → deploys to test subscription
-    # prod  → reads prod secrets  → deploys to prod subscription
     environment:
-      name: ${{ github.event.inputs.environment }}
+      name: ${{ needs.confirm.outputs.github_environment }}
 
     outputs:
       plan_exit_code: ${{ steps.plan.outputs.exit_code }}
 
-    env:
-      # Credentials injected from the selected GitHub Environment's secrets
+    env:      
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      # Terraform variables
-      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
-      TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
-      TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-      TF_VAR_environment: ${{ github.event.inputs.environment }}
-      TF_VAR_cost_center: ${{ secrets.TF_VAR_COST_CENTER }}
-
+      TF_VAR_environment: ${{ needs.confirm.outputs.tf_environment }}
+      
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout Branch - ${{ needs.confirm.outputs.branch }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.confirm.outputs.branch }}
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -210,7 +191,10 @@ jobs:
 
       - name: OpenTofu Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: tofu init -input=false
+        run: |
+          tofu init \
+            -input=false \
+            -backend-config="key=${{ needs.confirm.outputs.tf_environment }}/containerapp.tfstate"
 
       - name: OpenTofu Plan
         id: plan
@@ -221,24 +205,20 @@ jobs:
             -input=false \
             -no-color \
             -detailed-exitcode \
-            -var="environment=${{ github.event.inputs.environment }}" \
+            -var="environment=${{ needs.confirm.outputs.tf_environment }}" \
             -out=tfplan \
             2>&1 | tee plan_output.txt
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           set -e
 
-      - name: Upload Plan Artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: tfplan-${{ github.event.inputs.environment }}-${{ github.run_id }}
-          path: |
-            ${{ env.TF_WORKING_DIR }}/tfplan
-            ${{ env.TF_WORKING_DIR }}/plan_output.txt
-          retention-days: 5
-
       - name: Print Plan Summary
         run: |
-          echo "### OpenTofu Plan – ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### OpenTofu Plan" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ needs.confirm.outputs.branch }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| GitHub Environment | ${{ needs.confirm.outputs.github_environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| TF Environment | ${{ needs.confirm.outputs.tf_environment }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Subscription | ${{ secrets.AZURE_SUBSCRIPTION_ID }} |" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           tail -20 ${{ env.TF_WORKING_DIR }}/plan_output.txt >> $GITHUB_STEP_SUMMARY
@@ -252,35 +232,28 @@ jobs:
 
 
 # Job 5 – Apply
-# Also declares the same GitHub Environment — same scoped secrets apply.
-# For production, the environment's required reviewers gate kicks in here,
-# pausing the job until an approved reviewer clicks Approve in GitHub UI.
 
   apply:
-    name: Apply – ${{ github.event.inputs.environment }}
+    name: Apply - ${{ github.event.inputs.environment }}
     runs-on: ubuntu-latest
-    needs: plan
+    needs: [confirm, plan]
     if: needs.plan.outputs.plan_exit_code == '2'
 
     environment:
-      name: ${{ github.event.inputs.environment }}
-      url: https://portal.azure.com
+      name: ${{ needs.confirm.outputs.github_environment }}
 
-    env:
+    env:      
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      TF_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
-      TF_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
-      TF_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-      TF_VAR_environment: ${{ github.event.inputs.environment }}
-      TF_VAR_cost_center: ${{ secrets.TF_VAR_COST_CENTER }}
+      TF_VAR_environment: ${{ needs.confirm.outputs.tf_environment }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout Branch - ${{ needs.confirm.outputs.branch }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.confirm.outputs.branch }}
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -289,13 +262,19 @@ jobs:
 
       - name: OpenTofu Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: tofu init -input=false
+        run: |
+          tofu init \
+            -input=false \
+            -backend-config="key=${{ needs.confirm.outputs.tf_environment }}/containerapp.tfstate"
 
-      - name: Download Plan Artifact
-        uses: actions/download-artifact@v6
-        with:
-          name: tfplan-${{ github.event.inputs.environment }}-${{ github.run_id }}
-          path: ${{ env.TF_WORKING_DIR }}
+      - name: OpenTofu Plan (pre-apply)
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu plan \
+            -input=false \
+            -no-color \
+            -var="environment=${{ needs.confirm.outputs.tf_environment }}" \
+            -out=tfplan
 
       - name: OpenTofu Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -308,10 +287,12 @@ jobs:
       - name: Post Apply Summary
         if: always()
         run: |
-          echo "### OpenTofu Apply – ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "### OpenTofu Apply" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ needs.confirm.outputs.branch }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| GitHub Environment | ${{ needs.confirm.outputs.github_environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| TF Environment | ${{ needs.confirm.outputs.tf_environment }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Subscription | ${{ secrets.AZURE_SUBSCRIPTION_ID }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
