@@ -141,8 +141,8 @@ jobs:
         with:
           scan-type: "config"
           scan-ref: ${{ env.TF_WORKING_DIR }}
-          format: "sarif"
-          output: "trivy-results.sarif"
+          format: "table"
+          #output: "trivy-results.sarif"
           severity: "HIGH,CRITICAL"
           exit-code: "1"
           ignore-unfixed: true
